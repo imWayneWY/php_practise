@@ -58,53 +58,112 @@
                 <Amount>127790</Amount>
             </NewOrder>
         </Request>";
-    
+
     /**
-     * Handle information and mask the sensitive data with asterisks
-     *  @param string $data                 The data need to be handle
-     *  @param array additionalMaskKeys     Keys of sensitive data
-     *  @return string                      The data after sensitive data has been masked
+     * Type of the format for the data
      */
-    function MaskSensitiveData($data, $additionalMaskKeys = array()) {
-        // parse data to array
-        $lines = explode("\n", $data);
-        $isQueryString = false;
-        if(count($lines) == 1) {
-            $isQueryString = true;
-            $lines = explode('&',$data);
-        }
-
-        // handle mask keys
-        $maskKeys = array("number","exp","cvv");
-        $maskKeys = array_merge($maskKeys, $additionalMaskKeys);
-
-        // loop the array and handle every line
-        $newLines = array();
-        foreach ($lines as $line) {
-            $newLine = "";
-            if(isKeyLine($line, $maskKeys)) {
-                $newLine = preg_replace('/[0-9]+/', '*', $line);
-                array_push($newLines, $newLine);
-            } else {
-                array_push($newLines, $line);
-            }
-        }
-        var_dump($newLines);
+    class DataType {
+        const IS_ARRAY = 0;
+        const IS_QUERY = 1;
+        const IS_JSON = 2;
+        const IS_XML = 3;
     }
 
     /**
      * Match the string line with the maskKeys
      * @param string $str       The string to be matched
      * @param array $keys       The keywords to be matched
-     * @return boolean          true if the string and the keywords are matched, otherwise return false
      */
     function isKeyLine($str, $keys) {
         foreach($keys as $key) {
-            if (preg_match('/' . $key . '/i', $str)) {
+            if (preg_match('/' . $key . '[=">\]]/i', $str)) {
                 return true;
             }
         }
         return false;
     }
 
-    MaskSensitiveData($testData4);
+    /**
+     * Place sensitive information to asterisks
+     * @param string $str                   The string need to be handled
+     * @param emun $dataType                The type of the format of the string
+     * @return string                       The string after masked
+     */
+    function maskSingleLine($str, $dataType) {
+        if ($dataType == DataType::IS_ARRAY) {
+            $parsedStr = explode(" => ", $str);
+            $asterisks = array_fill(0, strlen($parsedStr[1]), "*");
+            $result = $parsedStr[0] . " => " . implode("",$asterisks);
+            return $result;
+        } else if ($dataType == DataType::IS_QUERY) {
+            $parsedStr = explode("=", $str);
+            $asterisks = array_fill(0, strlen($parsedStr[1]), "*");
+            $result = $parsedStr[0] . "=" . implode("",$asterisks);
+            return $result;
+        } else if ($dataType == DataType::IS_JSON) {
+            preg_match('/\d+/', $str, $matches);
+            $asterisks = array_fill(0, strlen($matches[0]), "*");
+            $result = preg_replace('/\d+/', implode("",$asterisks), $str);
+            return $result;
+        } else if ($dataType == DataType::IS_XML) {
+            preg_match('/\<\w+\>(.*?)\<\/\w+\>/i', $str, $matches);
+            $asterisks = array_fill(0, strlen($matches[1]), "*");
+            $result = preg_replace('/'.$matches[1].'/', implode("",$asterisks), $str);
+            return $result;
+        }
+    }
+
+    /**
+     * Handle information and mask the sensitive data with asterisks
+     *  @param string $data                 The data need to be handled
+     *  @param array additionalMaskKeys     Keys of sensitive data
+     *  @return string                      The data after sensitive data has been masked
+     */
+    function MaskSensitiveData($data, $additionalMaskKeys = array()) {
+        // parse data to array
+        $lines = explode("\n", $data);
+
+        $dataType = -1;
+
+        $isQueryString = false;
+        if(count($lines) == 1) {
+            $isQueryString = true;
+            $dataType = DataType::IS_QUERY;
+            $lines = explode("&",$data);
+        } else {
+            if (substr($lines[0],0,5) == "<?xml") {
+                $dataType = DataType::IS_XML;
+            } else if (substr($lines[0],0,1) == "{") {
+                $dataType = DataType::IS_JSON;
+            } else {
+                $dataType = DataType::IS_ARRAY;
+            }
+        }
+
+        // handle mask keys
+        $maskKeys = array("cardNumber","cardExpiry","cardCVV","CardExp","CardDataNumber","Exp","CVVCVCSecurity","Account_Card_Number","Account_Expiry","CVV");
+        $maskKeys = array_merge($maskKeys, $additionalMaskKeys);
+
+        // loop the array and handle every line
+        $newLines = array();
+        foreach ($lines as $line) {
+            if(isKeyLine($line, $maskKeys)) {
+                $newLine = maskSingleLine($line, $dataType);
+                array_push($newLines, $newLine);
+            } else {
+                array_push($newLines, $line);
+            }
+        }
+        $result = "";
+        $isQueryString ? $result = implode("&",$newLines) : $result = implode("\n",$newLines);
+        echo $result . "\n";
+        return $result;
+    }
+
+
+    // run the test
+    MaskSensitiveData($testData1, ["salesTax", "cardHolderName"]);
+    MaskSensitiveData($testData2, ["Version"]);
+    MaskSensitiveData($testData3, ["TransTs"]);
+    MaskSensitiveData($testData4, ["AVSname"]);
+    
